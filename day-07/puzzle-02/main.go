@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
-	"strconv"
-	
+
 	"github.com/sundeep-peswani/advent-of-code-2019/intcode"
 )
 
@@ -25,7 +22,7 @@ func main() {
 
 	max := maxThrusterSignal(string(input), []int{5, 6, 7, 8, 9})
 	fmt.Println(max)
-	
+
 	os.Exit(0)
 }
 
@@ -38,73 +35,56 @@ func maxThrusterSignal(program string, options []int) int {
 
 		if signal > max {
 			max = signal
-		}		
+		}
 	}
 
 	return max
 }
 
 func runAmps(program string, options []int) int {
-	var ins []*io.PipeReader
-	var outs []*io.PipeWriter
+	var streams []chan int
 	var amps []*intcode.Intcode
-	
+
 	for i := 0; i < len(options); i++ {
-		in, out := io.Pipe()
-		ins = append(ins, in)
-		outs = append(outs, out)			
-	}	
-	output := bufio.NewScanner(ins[0])
+		streams = append(streams, make(chan int))
+	}
 
 	for i, phase := range options {
-		amp := intcode.NewIntcode(ins[i], outs[(i + 1) % len(options)])
+		amp := intcode.NewIntcode(streams[i], streams[(i+1)%len(options)])
+		amp.ID = phase
 		amp.Load(program)
-		amp.Id = phase
 		amps = append(amps, amp)
 
 		go amp.Run()
-		io.WriteString(outs[i], fmt.Sprintf("%d\n", phase))
+		streams[i] <- phase
 	}
-	io.WriteString(outs[0], fmt.Sprintf("0\n"))
-	
-	// when the first amp is done, it won't read anymore from the last
-	// at this point, we can read 
-	for amps[0].IsRunning() {}
+	streams[0] <- 0
 
-	if !output.Scan() {
-		fmt.Printf("Failed to scan: %v\n", output.Err())
-		os.Exit(1)
-	}
-	
-	if signal, err := strconv.Atoi(output.Text()); err != nil {
-		fmt.Printf("Failed to parse output: %v\n", err)
-		os.Exit(1)
-	} else {
-		return signal
+	for amps[0].IsRunning() {
 	}
 
-	return -1
+	return <-streams[0]
 }
 
 func generatePermutations(options []int) [][]int {
-    if len(options) == 0 {
-        return [][]int{}
-    }
+	if len(options) == 0 {
+		return [][]int{}
+	}
 
-    if len(options) == 1 {
-        return [][]int{options}
-    }
+	if len(options) == 1 {
+		return [][]int{options}
+	}
 
-    var result [][]int
+	var result [][]int
 
-    for i, opt := range options {
+	for i, opt := range options {
 		optionsExceptThis := append(append([]int{}, options[:i]...), options[i+1:]...)
-        perms := generatePermutations(optionsExceptThis)
+		perms := generatePermutations(optionsExceptThis)
 
-        for _, perm := range perms {
-            result = append(result, append(append([]int{}, opt), perm...))
-        }
-    }
+		for _, perm := range perms {
+			result = append(result, append(append([]int{}, opt), perm...))
+		}
+	}
 
-    return result
+	return result
 }

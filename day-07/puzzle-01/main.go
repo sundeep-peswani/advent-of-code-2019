@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
-	"strconv"
-	
+
 	"github.com/sundeep-peswani/advent-of-code-2019/intcode"
 )
 
@@ -25,7 +22,7 @@ func main() {
 
 	max := maxThrusterSignal(string(input), []int{0, 1, 2, 3, 4})
 	fmt.Println(max)
-	
+
 	os.Exit(0)
 }
 
@@ -38,65 +35,48 @@ func maxThrusterSignal(program string, options []int) int {
 
 		if signal > max {
 			max = signal
-		}		
+		}
 	}
 
 	return max
 }
 
 func runAmps(program string, options []int) int {
-	var ins []*io.PipeReader
-	var outs []*io.PipeWriter
-
+	var streams []chan int
 	for i := 0; i <= len(options); i++ {
-		in, out := io.Pipe()
-		ins = append(ins, in)
-		outs = append(outs, out)			
-	}	
-	output := bufio.NewScanner(ins[len(options)])
+		streams = append(streams, make(chan int))
+	}
 
 	for i, phase := range options {
-		amp := intcode.NewIntcode(ins[i], outs[i + 1])
+		amp := intcode.NewIntcode(streams[i], streams[i+1])
 		amp.Load(program)
 		go amp.Run()
-		io.WriteString(outs[i], fmt.Sprintf("%d\n", phase))
+		streams[i] <- phase
 	}
-	io.WriteString(outs[0], fmt.Sprintf("0\n"))
-		
-	if !output.Scan() {
-		fmt.Printf("Failed to scan: %v\n", output.Err())
-		os.Exit(1)
-	}
-	
-	if signal, err := strconv.Atoi(output.Text()); err != nil {
-		fmt.Printf("Failed to parse output: %v\n", err)
-		os.Exit(1)
-	} else {
-		return signal
-	}
+	streams[0] <- 0
 
-	return -1
+	return <-streams[len(options)]
 }
 
 func generatePermutations(options []int) [][]int {
-    if len(options) == 0 {
-        return [][]int{}
-    }
+	if len(options) == 0 {
+		return [][]int{}
+	}
 
-    if len(options) == 1 {
-        return [][]int{options}
-    }
+	if len(options) == 1 {
+		return [][]int{options}
+	}
 
-    var result [][]int
+	var result [][]int
 
-    for i, opt := range options {
+	for i, opt := range options {
 		optionsExceptThis := append(append([]int{}, options[:i]...), options[i+1:]...)
-        perms := generatePermutations(optionsExceptThis)
+		perms := generatePermutations(optionsExceptThis)
 
-        for _, perm := range perms {
-            result = append(result, append(append([]int{}, opt), perm...))
-        }
-    }
+		for _, perm := range perms {
+			result = append(result, append(append([]int{}, opt), perm...))
+		}
+	}
 
-    return result
+	return result
 }

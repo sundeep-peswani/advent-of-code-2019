@@ -2,7 +2,6 @@ package intcode
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 )
 
@@ -42,56 +41,56 @@ func Test_Intcode(t *testing.T) {
 		{"Day 5: position mode, 0 == 0", "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99", []int{3, 21, 1008, 21, 8, 20, 1005, 20, 22, 107, 8, 21, 20, 1006, 20, 31, 1106, 0, 36, 98, 0, 7, 1002, 21, 125, 20, 4, 20, 1105, 1, 46, 104, 999, 1105, 1, 46, 1101, 1000, 1, 20, 4, 20, 1105, 1, 46, 98, 99}, []int{7}, []int{999}},
 		{"Day 5: position mode, 0 == 0", "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99", []int{3, 21, 1008, 21, 8, 20, 1005, 20, 22, 107, 8, 21, 20, 1006, 20, 31, 1106, 0, 36, 98, 1000, 8, 1002, 21, 125, 20, 4, 20, 1105, 1, 46, 104, 999, 1105, 1, 46, 1101, 1000, 1, 20, 4, 20, 1105, 1, 46, 98, 99}, []int{8}, []int{1000}},
 		{"Day 5: position mode, 0 == 0", "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99", []int{3, 21, 1008, 21, 8, 20, 1005, 20, 22, 107, 8, 21, 20, 1006, 20, 31, 1106, 0, 36, 98, 1001, 9, 1002, 21, 125, 20, 4, 20, 1105, 1, 46, 104, 999, 1105, 1, 46, 1101, 1000, 1, 20, 4, 20, 1105, 1, 46, 98, 99}, []int{9}, []int{1001}},
-		{"Day 9: outputs itself", "109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99", []int{109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99}, []int{}, []int{109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99}},
+		{"Day 9: outputs itself", "109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99", []int{109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99}, []int{}, []int{109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0}},
 		{"Day 9: output 16-digit number", "1102,34915192,34915192,7,4,7,99,0", []int{1102, 34915192, 34915192, 7, 4, 7, 99, 1219070632396864}, []int{}, []int{1219070632396864}},
 		{"Day 9: output 1125899906842624", "104,1125899906842624,99", []int{104, 1125899906842624, 99}, []int{}, []int{1125899906842624}},
 	}
 
-	var wg sync.WaitGroup
 	for i, test := range tests {
-		in, out := make(chan int), make(chan int)
+		in, out, quit := make(chan int), make(chan int), make(chan int)
 
-		sut := NewIntcode(in, out)
+		sut := NewIntcode(in, out, quit)
 		sut.ID = i + 1
 		// sut.Debug = true
 		sut.Load(test.program)
 
-		wg.Add(3)
-		go func() {
-			sut.Run()
-			for sut.IsRunning() {
-			}
-			wg.Done()
-		}()
-
+		var actualOutput []int
 		go func() {
 			for _, item := range test.input {
 				in <- item
 			}
 			close(in)
-			wg.Done()
 		}()
 
 		go func() {
-			for j, item := range test.output {
-				actual := <-out
-				if item != actual {
-					t.Errorf("Test %d, %s: expected output of %d @ %d, actual %d\n", i+1, test.testCase, item, j, actual)
+			for {
+				select {
+				case <-quit:
+					return
+				case o := <-out:
+					actualOutput = append(actualOutput, o)
 				}
 			}
-			close(out)
-			wg.Done()
 		}()
 
-		wg.Wait()
+		go func() { sut.Run() }()
+		<-quit
 
-		if !equal(test.expected, sut.program) {
-			t.Errorf("Test %d, %s: expected %v, actual %v\n", i+1, test.testCase, test.expected, sut.program)
+		if !equal(test.expected, sut.Program) {
+			t.Errorf("Test %d, %s: expected %v, actual %v\n", i+1, test.testCase, test.expected, sut.Program)
+		}
+
+		if len(test.output) > 0 && !equal(test.output, actualOutput) {
+			t.Errorf("Test %d, %s: expected %v, actual %v\n", i+1, test.testCase, test.output, actualOutput)
 		}
 	}
 }
 
 func equal(a, b []int) bool {
+	if len(a) > len(b) {
+		return false
+	}
+
 	for i, j := range a {
 		if j != b[i] {
 			fmt.Printf("%d: %d != %d\n", i, j, b[i])

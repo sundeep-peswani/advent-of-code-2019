@@ -13,31 +13,33 @@ type Intcode struct {
 	ID    int
 	Debug bool
 
-	program []int
+	Program []int
 	running bool
 
 	instPtr        int
 	relativeOffset int
 
-	in  chan int
-	out chan int
+	in   chan int
+	out  chan int
+	quit chan int
 }
 
 // NewIntcode returns a new intcode system
-func NewIntcode(r, w chan int) *Intcode {
+func NewIntcode(r, w, q chan int) *Intcode {
 	var system Intcode
 
 	system.instPtr = 0
 	system.relativeOffset = 0
 	system.in = r
 	system.out = w
+	system.quit = q
 
-	system.program = make([]int, 10000)
+	system.Program = make([]int, 10000)
 
 	return &system
 }
 
-// Load loads the Intcode system with a new program
+// Load loads the Intcode system with a new Program
 func (i *Intcode) Load(input string) {
 	for j, instruction := range strings.Split(input, ",") {
 		op, err := strconv.Atoi(instruction)
@@ -46,17 +48,17 @@ func (i *Intcode) Load(input string) {
 			os.Exit(1)
 		}
 
-		i.program[j] = op
+		i.Program[j] = op
 	}
 }
 
-// Run runs the loaded program
+// Run runs the loaded Program
 func (i *Intcode) Run() {
 	i.running = true
 	i.instPtr = 0
 
-	for i.IsRunning() && i.instPtr < len(i.program) {
-		switch i.program[i.instPtr] % 100 {
+	for i.IsRunning() && i.instPtr < len(i.Program) {
+		switch i.Program[i.instPtr] % 100 {
 		case 1:
 			i.add()
 			break
@@ -98,10 +100,15 @@ func (i *Intcode) Run() {
 			return
 
 		default:
-			fmt.Printf("%d: Invalid opcode: %d\n", i.ID, i.program[i.instPtr])
+			fmt.Printf("%d: Invalid opcode: %d\n", i.ID, i.Program[i.instPtr])
 			os.Exit(1)
 		}
 	}
+}
+
+// Stop halts the intcode system
+func (i *Intcode) Stop() {
+	i.halt()
 }
 
 // IsRunning returns if the Intcode is still running
@@ -111,7 +118,7 @@ func (i *Intcode) IsRunning() bool {
 
 func (i *Intcode) log(message string, params ...interface{}) {
 	if i.Debug {
-		fmt.Println(fmt.Sprintf(fmt.Sprintf("%d @ %d = %d: %s", i.ID, i.instPtr, i.program[i.instPtr], message), params...))
+		fmt.Println(fmt.Sprintf(fmt.Sprintf("%d @ %d = %d: %s", i.ID, i.instPtr, i.Program[i.instPtr], message), params...))
 	}
 }
 
@@ -144,11 +151,11 @@ func (p param) String() string {
 }
 
 func (i *Intcode) getParams(n int) []param {
-	modes := i.program[i.instPtr] / 100
+	modes := i.Program[i.instPtr] / 100
 
 	var params []param
 	for j := 1; j <= n; j++ {
-		p := param{i.program[i.instPtr+j], 0, modes % 10}
+		p := param{i.Program[i.instPtr+j], 0, modes % 10}
 		i.get(&p)
 
 		params = append(params, p)
@@ -161,16 +168,16 @@ func (i *Intcode) getParams(n int) []param {
 func (i *Intcode) get(p *param) {
 	switch p.mode {
 	case position:
-		if p.position >= len(i.program) {
+		if p.position >= len(i.Program) {
 			log.Fatalf("Invalid access for get(): %d\n", p.position)
 		}
-		p.value = i.program[p.position]
+		p.value = i.Program[p.position]
 
 	case immediate:
 		p.value = p.position
 
 	case relative:
-		p.value = i.program[i.relativeOffset+p.position]
+		p.value = i.Program[i.relativeOffset+p.position]
 
 	default:
 		log.Fatalf("Unknown param mode: %d", p.mode)
@@ -194,12 +201,12 @@ func (i *Intcode) set(p param) {
 		log.Fatalf("Unknown param mode: %d", p.mode)
 	}
 
-	if pos < 0 || pos >= len(i.program) {
-		log.Fatalf("Attempt to write outside program: %s\n", p)
+	if pos < 0 || pos >= len(i.Program) {
+		log.Fatalf("Attempt to write outside Program: %s\n", p)
 	}
 
 	i.log("SET %s, @%d", p, pos)
-	i.program[pos] = p.value
+	i.Program[pos] = p.value
 }
 
 func (i *Intcode) unaryOp(op string, f func(a int) bool) {
@@ -275,11 +282,7 @@ func (i *Intcode) read() {
 	params := i.getParams(1)
 	dest := params[0]
 
-	a, ok := <-i.in
-	if !ok {
-		log.Fatal("Unable to read from in")
-	}
-
+	a := <-i.in
 	dest.value = a
 
 	i.log("READ -> %s", dest)
@@ -302,4 +305,5 @@ func (i *Intcode) halt() {
 	i.log("HALT")
 
 	i.running = false
+	i.quit <- 0
 }
